@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    background-color: #080c14;
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0d1320;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1f2d44;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #38bdf8;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-[#0d1320] border border-[#1a2438] rounded-lg overflow-hidden;
+  }
+
+  .panel-header {
+    @apply text-xs font-semibold tracking-widest text-slate-400 uppercase px-4 py-2.5 border-b border-[#1a2438] bg-[#111827];
+  }
+
+  .field-label {
+    @apply text-xs text-slate-500 uppercase tracking-wider mb-1 block;
+  }
+
+  .field-input {
+    @apply bg-[#080c14] border border-[#1a2438] text-slate-200 text-sm rounded px-3 py-1.5
+           focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400
+           transition-colors w-full font-mono;
+  }
+
+  .field-input:disabled {
+    @apply opacity-40 cursor-not-allowed;
+  }
+
+  .btn-start {
+    @apply bg-emerald-500 text-black font-bold py-3 px-8 rounded
+           hover:bg-emerald-400 active:bg-emerald-600
+           transition-colors text-sm tracking-widest uppercase cursor-pointer w-full
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-stop {
+    @apply bg-red-500 text-white font-bold py-3 px-8 rounded
+           hover:bg-red-400 active:bg-red-600
+           transition-colors text-sm tracking-widest uppercase cursor-pointer w-full;
+  }
+
+  .btn-ghost {
+    @apply border border-[#1a2438] text-slate-400 font-medium py-1.5 px-4 rounded
+           hover:border-sky-400 hover:text-sky-400
+           transition-colors text-sm cursor-pointer bg-transparent;
+  }
+
+  .stat-block {
+    @apply flex flex-col gap-0.5;
+  }
+
+  .stat-value {
+    @apply text-sky-400 font-bold text-base tabular-nums;
+  }
+
+  .stat-label {
+    @apply text-xs text-slate-500 uppercase tracking-wider;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
