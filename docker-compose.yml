@@ -1,0 +1,29 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  # Optional WebSocket echo server – useful for local testing.
+  # Echoes every binary or text message back to the sender.
+  # Connect the transmitter to: ws://localhost:9000
+  ws-echo:
+    image: node:22-alpine
+    working_dir: /app
+    command: >
+      sh -c "npm install ws && node -e \"
+        const { WebSocketServer } = require('ws');
+        const wss = new WebSocketServer({ port: 9000 });
+        wss.on('connection', ws => {
+          console.log('client connected');
+          ws.on('message', msg => { console.log('rx', msg.length, 'bytes'); ws.send(msg); });
+          ws.on('close', () => console.log('client disconnected'));
+        });
+        console.log('WS echo listening on ws://0.0.0.0:9000');
+      \""
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
