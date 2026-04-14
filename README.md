@@ -191,6 +191,42 @@ Each section is colour-coded:
 
 ---
 
+## Monitoring Frames with Postman
+
+Postman's built-in WebSocket client lets you connect to any WebSocket server and inspect the raw binary frames sent by the transmitter.
+
+### Steps
+
+1. **Open Postman** and click **New** (top-left), then select **WebSocket** from the request type list.
+
+2. **Enter the server URL** in the address bar at the top of the new tab.
+   - If using the bundled echo server from Docker Compose: `ws://localhost:9000`
+   - If connecting to your own receiver: use its URL (e.g. `ws://192.168.1.10:4200`)
+
+3. **Click Connect.** The status badge next to the URL changes to **Connected** (green).
+
+4. **Open the Messages tab** (below the URL bar). This panel will display every frame that the server receives and echoes back.
+
+5. **Start transmitting** from the CCSDS TM Frame Transmitter UI — click **▶ Start** in the Transmission panel.
+
+6. **Observe incoming frames.** Each frame appears as a new row in the Messages panel, labelled **Binary**. The size shown matches the frame length configured in the app.
+
+7. **Inspect a frame's bytes** — click any message row to expand it, then select the **Hex** view from the format toggle. The byte layout matches the colour-coded Frame Preview in the transmitter:
+
+   | Bytes | Field |
+   |-------|-------|
+   | 0–5 | Primary Header |
+   | 6–N | Secondary Header (if enabled) |
+   | next | Data Field (payload + idle fill) |
+   | last 4 | OCF (if enabled) |
+   | last 2 | FECF / CRC-16 (if enabled) |
+
+8. **Stop transmitting** by clicking **■ Stop** in the app, then click **Disconnect** in Postman when done.
+
+> **Tip:** Increase the transmission interval (e.g. 2 s) while inspecting frames in Postman — it gives more time to read each message before the next one arrives.
+
+---
+
 ## Project Structure
 
 ```
