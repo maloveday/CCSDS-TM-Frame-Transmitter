@@ -9,7 +9,7 @@ interface UseTransmitterReturn {
   lastFrame: Uint8Array | null;
   lastError: string | null;
   start: (frameConfig: FrameConfig, txConfig: TransmissionConfig, payload: Uint8Array) => void;
-  stop: () => void;
+  stop: (finalStatus?: WsStatus) => void;
   resetStats: () => void;
 }
 
@@ -53,12 +53,12 @@ export function useTransmitter(): UseTransmitterReturn {
     }
   }, []);
 
-  const stop = useCallback(() => {
+  const stop = useCallback((finalStatus: WsStatus = 'disconnected') => {
     runningRef.current = false;
     clearTimer();
     closeSocket();
     setIsRunning(false);
-    setWsStatus('disconnected');
+    setWsStatus(finalStatus);
   }, [clearTimer, closeSocket]);
 
   const start = useCallback(
@@ -137,9 +137,8 @@ export function useTransmitter(): UseTransmitterReturn {
 
       ws.onerror = () => {
         if (!runningRef.current) return;
-        setWsStatus('error');
         setLastError('WebSocket connection error');
-        stop();
+        stop('error');
       };
 
       ws.onclose = (ev) => {
