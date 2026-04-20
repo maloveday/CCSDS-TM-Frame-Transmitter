@@ -1,7 +1,7 @@
 # CCSDS TM Frame Transmitter
 
-A browser-based tool for constructing and transmitting **CCSDS TM (Telemetry) Transfer Frames** over WebSocket.
-Built with React + TypeScript + Vite. Reference standard: [CCSDS 132.0-B-3](https://public.ccsds.org/Pubs/132x0b3.pdf).
+A browser-based tool for constructing and transmitting **CCSDS TM (Telemetry) Transfer Frames** — optionally encapsulated in a **Channel Access Data Unit (CADU)** — over WebSocket.
+Built with React + TypeScript + Vite. Reference standards: [CCSDS 132.0-B-3](https://public.ccsds.org/Pubs/132x0b3.pdf) (Transfer Frames) · [CCSDS 131.0-B-5](https://ccsds.org/Pubs/131x0b5.pdf) (TM Synchronization and Channel Coding).
 
 ---
 
@@ -12,16 +12,18 @@ Built with React + TypeScript + Vite. Reference standard: [CCSDS 132.0-B-3](http
 | Module | Description |
 |--------|-------------|
 | `src/utils/frameBuilder.ts` | Constructs complete CCSDS TM Transfer Frames per CCSDS 132.0-B-3. Handles the 6-byte primary header, optional secondary header, data field with idle-fill, OCF, and FECF. |
+| `src/utils/cadu.ts` | CADU encapsulation per CCSDS 131.0-B-5. Prepends the 4-byte ASM (`1A CF FC 1D`) and optionally applies PRBS pseudo-randomization (Fibonacci LFSR, h(x)=x⁸+x⁷+x⁵+x³+1, seed 0xFF). |
 | `src/utils/crc.ts` | CRC-16/CCITT-FALSE implementation (init 0xFFFF, poly 0x1021, no reflection) used for the Frame Error Control Field. |
 | `src/utils/hex.ts` | Hex/ASCII conversion utilities: parsing, formatting, hex-dump, and input validation. |
-| `src/hooks/useTransmitter.ts` | React hook that manages a WebSocket connection and fires frames at a configurable interval. Tracks MCFC/VCFC counters with 8-bit wrap-around. |
-| `src/components/FrameConfig.tsx` | Panel for all primary-header parameters: SCID, VCID, frame length, sync flag, FHP, and optional fields. |
+| `src/hooks/useTransmitter.ts` | React hook that manages a WebSocket connection and fires frames at a configurable interval. Wraps the frame in a CADU when enabled. Tracks MCFC/VCFC counters with 8-bit wrap-around. |
+| `src/components/FrameConfig.tsx` | Panel for all primary-header parameters: SCID, VCID, frame length, sync flag, FHP, optional fields, and CADU encapsulation. |
 | `src/components/PayloadInput.tsx` | Hex / ASCII payload editor with file-upload, capacity bar, and helper fill buttons (idle, ramp). |
 | `src/components/TransmissionPanel.tsx` | WebSocket URL, interval control, start/stop, and live transmission statistics. |
-| `src/components/FramePreview.tsx` | Live colour-coded hex dump with section legend (Primary Header, Secondary Header, Data Field, OCF, FECF). |
+| `src/components/FramePreview.tsx` | Live colour-coded hex dump with section legend (ASM, Primary Header, Secondary Header, Data Field, OCF, FECF). |
 
 ### Frame Structure
 
+TM Transfer Frame (CCSDS 132.0-B-3):
 ```
 ┌────────────────────┬──────────────────────┬───────────────┬──────────┬──────────┐
 │  Primary Header    │  Secondary Header     │  Data Field   │  OCF     │  FECF    │
@@ -32,15 +34,25 @@ Built with React + TypeScript + Vite. Reference standard: [CCSDS 132.0-B-3](http
 
 Total frame length: **7–2048 bytes**.
 
+CADU (CCSDS 131.0-B-5), when enabled:
+```
+┌──────────┬───────────────────────────────────────────────────────────────────────┐
+│  ASM     │  Transfer Frame  (optionally PRBS pseudo-randomized)                  │
+│  4 bytes │  7–2048 bytes                                                         │
+└──────────┴───────────────────────────────────────────────────────────────────────┘
+  1A CF FC 1D
+```
+
 ### Unit Tests
 
-74 tests across three test suites using **Vitest**:
+91 tests across four test suites using **Vitest**:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | `crc.test.ts` | 8 | CRC-16/CCITT-FALSE algorithm with known CCITT check vector (0x29B1) |
 | `hex.test.ts` | 33 | `hexToBytes`, `bytesToHex`, `byteHex`, `asciiToBytes`, `hexDump`, `validateHexInput` |
 | `frameBuilder.test.ts` | 33 | Frame construction, header encoding, optional fields, error cases, `availableDataBytes` |
+| `cadu.test.ts` | 17 | ASM value, CADU structure, section offsetting, PRBS sequence vectors, self-inverse property |
 
 ### Docker Support
 
@@ -141,8 +153,23 @@ Use the **Frame Config** panel on the left to set:
 | **OCF** | Enable and enter 4-byte hex Operational Control Field |
 | **FECF** | Enable to append a CRC-16/CCITT-FALSE checksum |
 | **Idle Fill Byte** | Byte value used to pad unused data field space (default `0xE0`) |
+| **Enable CADU** | Wraps the completed Transfer Frame in a CADU (prepends ASM `1A CF FC 1D`) |
+| **Pseudo-randomization** | Applies CCSDS PRBS to the Transfer Frame before transmission (visible only when CADU is enabled) |
 
 The **Available Payload** counter at the bottom of the panel shows how many bytes remain for user data given the current configuration.
+
+#### CADU Encapsulation (CCSDS 131.0-B-5)
+
+When **Enable CADU** is toggled on in the *CADU Encapsulation* section of the Frame Config panel:
+
+- The 4-byte **Attached Synchronization Marker (ASM)** `1A CF FC 1D` is prepended to every outgoing Transfer Frame.
+- The bytes-sent counter and Frame Preview reflect the full CADU size (frame length + 4 bytes).
+- The **Pseudo-randomization (PRBS)** sub-toggle, when enabled, XORs the Transfer Frame bytes (not the ASM) with the output of a Fibonacci LFSR prior to transmission:
+  - Generator polynomial: h(x) = x⁸ + x⁷ + x⁵ + x³ + 1
+  - Initial fill: `0xFF` (all ones)
+  - Period: 255 bits
+  - This operation is self-inverse — applying PRBS twice recovers the original data.
+- The header bar shows an **CADU** badge (or **CADU+PRBS** when randomization is active).
 
 ### 2. Enter Payload Data
 
@@ -183,6 +210,7 @@ Each section is colour-coded:
 
 | Colour | Section |
 |--------|---------|
+| Orange | ASM (CADU only) |
 | Blue | Primary Header |
 | Purple | Secondary Header |
 | Green | Data Field |
@@ -249,6 +277,8 @@ Postman's built-in WebSocket client lets you connect to any WebSocket server and
     ├── hooks/
     │   └── useTransmitter.ts
     └── utils/
+        ├── cadu.ts
+        ├── cadu.test.ts
         ├── crc.ts
         ├── crc.test.ts
         ├── frameBuilder.ts

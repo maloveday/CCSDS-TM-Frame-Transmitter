@@ -22,6 +22,8 @@ function makeConfig(overrides: Partial<FrameConfig> = {}): FrameConfig {
     ocfData: '',
     hasFECF: false,
     idleFillByte: 0xe0,
+    hasCADU: false,
+    caduRandomize: false,
     ...overrides,
   };
 }
