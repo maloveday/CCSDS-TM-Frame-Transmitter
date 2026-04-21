@@ -24,6 +24,10 @@ function makeConfig(overrides: Partial<FrameConfig> = {}): FrameConfig {
     idleFillByte: 0xe0,
     hasCADU: false,
     caduRandomize: false,
+    caduPayloadType: 'transfer-frame',
+    rsVariant: 'RS_255_223',
+    rsInterleaveDepth: 1,
+    caduCodewordData: '',
     ...overrides,
   };
 }

@@ -107,9 +107,17 @@ export function useTransmitter(): UseTransmitterReturn {
             return;
           }
 
-          const frameToSend = frameConfig.hasCADU
-            ? buildCADU(result.frame, frameConfig.caduRandomize).cadu
-            : result.frame;
+          const caduResult = frameConfig.hasCADU
+            ? buildCADU(result.frame, frameConfig)
+            : null;
+
+          if (caduResult?.error) {
+            setLastError(caduResult.error);
+            stop();
+            return;
+          }
+
+          const frameToSend = caduResult ? caduResult.cadu : result.frame;
 
           try {
             ws.send(frameToSend.buffer);

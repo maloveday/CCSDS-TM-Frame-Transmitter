@@ -28,7 +28,20 @@ export interface FrameConfig {
   // CADU encapsulation (CCSDS 131.0-B-5)
   hasCADU: boolean;        // prepend 4-byte ASM (0x1A CF FC 1D)
   caduRandomize: boolean;  // apply PRBS pseudo-randomization to the Transfer Frame
+  caduPayloadType: CaduPayloadType;    // what fills the CADU payload
+  rsVariant: RsVariant;                // RS code variant (only when caduPayloadType='reed-solomon')
+  rsInterleaveDepth: RsInterleaveDepth;// RS interleave depth I (1, 2, 3, 4, 5, or 8)
+  caduCodewordData: string;            // hex string for raw codeword (only when caduPayloadType='codeword')
 }
+
+/** What bytes fill the CADU payload (after the ASM). */
+export type CaduPayloadType = 'transfer-frame' | 'reed-solomon' | 'codeword';
+
+/** CCSDS RS code variant (CCSDS 131.0-B-5 §4). */
+export type RsVariant = 'RS_255_223' | 'RS_255_239';
+
+/** RS interleave depth (number of independently encoded sub-blocks). */
+export type RsInterleaveDepth = 1 | 2 | 3 | 4 | 5 | 8;
 
 export type PayloadMode = 'hex' | 'ascii';
 

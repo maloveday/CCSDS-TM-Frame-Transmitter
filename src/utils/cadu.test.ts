@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { ASM, ASM_SIZE, buildCADU, applyPRBS } from './cadu';
+import type { CADUConfig } from './cadu';
+
+// Default config for transfer-frame tests (matches old test API)
+const TF_CONFIG: CADUConfig = {
+  caduRandomize: false,
+  caduPayloadType: 'transfer-frame',
+  rsVariant: 'RS_255_223',
+  rsInterleaveDepth: 1,
+  caduCodewordData: '',
+};
+
+const TF_CONFIG_PRBS: CADUConfig = { ...TF_CONFIG, caduRandomize: true };
 
 // ---------------------------------------------------------------------------
 // ASM constant
@@ -20,19 +32,19 @@ describe('ASM', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildCADU — structure
+// buildCADU — structure (transfer-frame payload)
 // ---------------------------------------------------------------------------
 
 describe('buildCADU – structure', () => {
   it('output length equals ASM_SIZE + frame.length', () => {
     const frame = new Uint8Array(7).fill(0x00);
-    const { cadu } = buildCADU(frame, false);
+    const { cadu } = buildCADU(frame, TF_CONFIG);
     expect(cadu.length).toBe(ASM_SIZE + 7);
   });
 
   it('first 4 bytes are always the ASM', () => {
     const frame = new Uint8Array(16).fill(0xaa);
-    const { cadu } = buildCADU(frame, false);
+    const { cadu } = buildCADU(frame, TF_CONFIG);
     expect(cadu[0]).toBe(0x1a);
     expect(cadu[1]).toBe(0xcf);
     expect(cadu[2]).toBe(0xfc);
@@ -41,7 +53,7 @@ describe('buildCADU – structure', () => {
 
   it('without randomization: frame bytes follow ASM unchanged', () => {
     const frame = new Uint8Array([0x01, 0x02, 0x03, 0x04]);
-    const { cadu } = buildCADU(frame, false);
+    const { cadu } = buildCADU(frame, TF_CONFIG);
     expect(cadu[4]).toBe(0x01);
     expect(cadu[5]).toBe(0x02);
     expect(cadu[6]).toBe(0x03);
@@ -50,7 +62,7 @@ describe('buildCADU – structure', () => {
 
   it('with randomization: ASM bytes are still unmodified', () => {
     const frame = new Uint8Array(8).fill(0xff);
-    const { cadu } = buildCADU(frame, true);
+    const { cadu } = buildCADU(frame, TF_CONFIG_PRBS);
     expect(cadu[0]).toBe(0x1a);
     expect(cadu[1]).toBe(0xcf);
     expect(cadu[2]).toBe(0xfc);
@@ -59,21 +71,26 @@ describe('buildCADU – structure', () => {
 
   it('with randomization: frame bytes differ from original', () => {
     const frame = new Uint8Array(8).fill(0x00);
-    const { cadu } = buildCADU(frame, true);
+    const { cadu } = buildCADU(frame, TF_CONFIG_PRBS);
     // PRBS applied to all-zeros gives the PRBS mask itself — must differ from 0x00
     const frameBytes = cadu.slice(ASM_SIZE);
     const allZero = frameBytes.every(b => b === 0x00);
     expect(allZero).toBe(false);
   });
+
+  it('error is null for valid transfer-frame payload', () => {
+    const { error } = buildCADU(new Uint8Array(8), TF_CONFIG);
+    expect(error).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
-// buildCADU — sections
+// buildCADU — sections (transfer-frame)
 // ---------------------------------------------------------------------------
 
 describe('buildCADU – sections', () => {
   it('first section is the ASM, spanning bytes 0–4', () => {
-    const { sections } = buildCADU(new Uint8Array(8), false);
+    const { sections } = buildCADU(new Uint8Array(8), TF_CONFIG);
     const asm = sections[0];
     expect(asm.label).toBe('ASM');
     expect(asm.start).toBe(0);
@@ -81,7 +98,7 @@ describe('buildCADU – sections', () => {
   });
 
   it('returns only the ASM section when no frame sections are provided', () => {
-    const { sections } = buildCADU(new Uint8Array(8), false);
+    const { sections } = buildCADU(new Uint8Array(8), TF_CONFIG);
     expect(sections.length).toBe(1);
   });
 
@@ -90,7 +107,7 @@ describe('buildCADU – sections', () => {
       { label: 'Primary Header', start: 0, end: 6, color: '', textColor: '' },
       { label: 'Data Field', start: 6, end: 14, color: '', textColor: '' },
     ];
-    const { sections } = buildCADU(new Uint8Array(14), false, frameSections);
+    const { sections } = buildCADU(new Uint8Array(14), TF_CONFIG, frameSections);
     expect(sections.length).toBe(3);
     expect(sections[1].label).toBe('Primary Header');
     expect(sections[1].start).toBe(4);
@@ -105,12 +122,100 @@ describe('buildCADU – sections', () => {
       { label: 'A', start: 0, end: 6, color: '', textColor: '' },
       { label: 'B', start: 6, end: 14, color: '', textColor: '' },
     ];
-    const { sections, cadu } = buildCADU(new Uint8Array(14), false, frameSections);
+    const { sections, cadu } = buildCADU(new Uint8Array(14), TF_CONFIG, frameSections);
     expect(sections[0].start).toBe(0);
     expect(sections[sections.length - 1].end).toBe(cadu.length);
     for (let i = 1; i < sections.length; i++) {
       expect(sections[i].start).toBe(sections[i - 1].end);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCADU — Reed-Solomon payload
+// ---------------------------------------------------------------------------
+
+describe('buildCADU – Reed-Solomon payload', () => {
+  const RS_CONFIG: CADUConfig = {
+    caduRandomize: false,
+    caduPayloadType: 'reed-solomon',
+    rsVariant: 'RS_255_223',
+    rsInterleaveDepth: 1,
+    caduCodewordData: '',
+  };
+
+  it('CADU length = ASM_SIZE + 255 for RS(255,223) depth=1', () => {
+    const { cadu, error } = buildCADU(new Uint8Array(223), RS_CONFIG);
+    expect(error).toBeNull();
+    expect(cadu.length).toBe(ASM_SIZE + 255);
+  });
+
+  it('CADU length = ASM_SIZE + 510 for RS(255,223) depth=2', () => {
+    const cfg: CADUConfig = { ...RS_CONFIG, rsInterleaveDepth: 2 };
+    const { cadu } = buildCADU(new Uint8Array(446), cfg);
+    expect(cadu.length).toBe(ASM_SIZE + 510);
+  });
+
+  it('sections contain RS Data and RS Check entries', () => {
+    const { sections } = buildCADU(new Uint8Array(223), RS_CONFIG);
+    const rsData = sections.find(s => s.label.startsWith('RS Data'));
+    const rsCheck = sections.find(s => s.label.startsWith('RS Check'));
+    expect(rsData).toBeDefined();
+    expect(rsCheck).toBeDefined();
+  });
+
+  it('ASM is still first 4 bytes', () => {
+    const { cadu } = buildCADU(new Uint8Array(223), RS_CONFIG);
+    expect(cadu[0]).toBe(0x1a);
+    expect(cadu[3]).toBe(0x1d);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCADU — Codeword payload
+// ---------------------------------------------------------------------------
+
+describe('buildCADU – Codeword payload', () => {
+  it('uses raw hex bytes as CADU payload', () => {
+    const cfg: CADUConfig = {
+      caduRandomize: false,
+      caduPayloadType: 'codeword',
+      rsVariant: 'RS_255_223',
+      rsInterleaveDepth: 1,
+      caduCodewordData: 'DEADBEEF',
+    };
+    const { cadu, error } = buildCADU(new Uint8Array(0), cfg);
+    expect(error).toBeNull();
+    expect(cadu.length).toBe(ASM_SIZE + 4);
+    expect(cadu[4]).toBe(0xde);
+    expect(cadu[5]).toBe(0xad);
+    expect(cadu[6]).toBe(0xbe);
+    expect(cadu[7]).toBe(0xef);
+  });
+
+  it('returns error for invalid hex', () => {
+    const cfg: CADUConfig = {
+      caduRandomize: false,
+      caduPayloadType: 'codeword',
+      rsVariant: 'RS_255_223',
+      rsInterleaveDepth: 1,
+      caduCodewordData: 'ZZZZ',
+    };
+    const { error } = buildCADU(new Uint8Array(0), cfg);
+    expect(error).not.toBeNull();
+  });
+
+  it('empty codeword data gives CADU with only ASM', () => {
+    const cfg: CADUConfig = {
+      caduRandomize: false,
+      caduPayloadType: 'codeword',
+      rsVariant: 'RS_255_223',
+      rsInterleaveDepth: 1,
+      caduCodewordData: '',
+    };
+    const { cadu, error } = buildCADU(new Uint8Array(0), cfg);
+    expect(error).toBeNull();
+    expect(cadu.length).toBe(ASM_SIZE);
   });
 });
 

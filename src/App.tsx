@@ -24,6 +24,10 @@ const DEFAULT_FRAME_CONFIG: FrameConfig = {
   idleFillByte: 0xe0,
   hasCADU: false,
   caduRandomize: false,
+  caduPayloadType: 'transfer-frame',
+  rsVariant: 'RS_255_223',
+  rsInterleaveDepth: 1,
+  caduCodewordData: '',
 };
 
 const DEFAULT_TX_CONFIG: TransmissionConfig = {
@@ -69,11 +73,16 @@ export default function App() {
   // Wrap in CADU if enabled (preview only — the transmitter handles its own wrapping)
   const displayResult = useMemo(() => {
     if (frameConfig.hasCADU && !previewResult.error) {
-      const { cadu, sections } = buildCADU(previewResult.frame, frameConfig.caduRandomize, previewResult.sections);
+      const { cadu, sections, error } = buildCADU(
+        previewResult.frame,
+        frameConfig,
+        previewResult.sections,
+      );
+      if (error) return { frame: new Uint8Array(0), sections: [], error };
       return { frame: cadu, sections, error: null };
     }
     return previewResult;
-  }, [frameConfig.hasCADU, frameConfig.caduRandomize, previewResult]);
+  }, [frameConfig, previewResult]);
 
   // If running and we have a last transmitted frame, show that; otherwise show the built preview
   const displayFrame = lastFrame ?? displayResult.frame;
@@ -96,7 +105,17 @@ export default function App() {
           {frameConfig.hasFECF && <span className="text-red-400">FECF</span>}
           {frameConfig.hasOCF && <span className="text-amber-400">OCF</span>}
           {frameConfig.hasSecondaryHeader && <span className="text-purple-400">SH</span>}
-          {frameConfig.hasCADU && <span className="text-orange-400">CADU{frameConfig.caduRandomize && '+PRBS'}</span>}
+          {frameConfig.hasCADU && (
+            <span className="text-orange-400">
+              {'CADU'}
+              {frameConfig.caduPayloadType === 'reed-solomon' && (
+                `+${frameConfig.rsVariant === 'RS_255_223' ? 'RS(255,223)' : 'RS(255,239)'}` +
+                (frameConfig.rsInterleaveDepth > 1 ? `×${frameConfig.rsInterleaveDepth}` : '')
+              )}
+              {frameConfig.caduPayloadType === 'codeword' && '+CW'}
+              {frameConfig.caduRandomize && '+PRBS'}
+            </span>
+          )}
         </div>
       </header>
 

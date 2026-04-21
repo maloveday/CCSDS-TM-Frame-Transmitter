@@ -3,19 +3,25 @@
  * Reference: CCSDS 131.0-B-5 (TM Synchronization and Channel Coding)
  *
  * CADU structure:
- *   [ASM 4 bytes] [Transfer Frame (optionally pseudo-randomized)]
+ *   [ASM 4 bytes] [Payload]
+ *
+ * Payload options (caduPayloadType):
+ *   'transfer-frame' — Transfer Frame bytes (optionally PRBS-randomized)
+ *   'reed-solomon'   — RS-encoded Transfer Frame (RS(255,223) or RS(255,239),
+ *                      with configurable interleave depth; optionally PRBS-randomized)
+ *   'codeword'       — User-supplied raw codeword bytes (hex input)
  *
  * Attached Synchronization Marker (ASM):
- *   0x1A 0xCF 0xFC 0x1D  — used for uncoded, convolutional, Reed-Solomon,
- *   concatenated, and rate-7/8 LDPC coded data (Table 2-1).
+ *   0x1A 0xCF 0xFC 0x1D  — Table 2-1, CCSDS 131.0-B-5
  *
- * Pseudo-randomization (optional, CCSDS 131.0-B-5 §9.1):
- *   Fibonacci LFSR, generator polynomial h(x) = x^8 + x^7 + x^5 + x^3 + 1,
- *   initial fill all-ones (0xFF), 255-bit period.
- *   The sequence is XOR'd with the Transfer Frame only (ASM is not randomized).
+ * Pseudo-randomization (CCSDS 131.0-B-5 §9.1):
+ *   Fibonacci LFSR, h(x) = x^8+x^7+x^5+x^3+1, seed 0xFF, 255-bit period.
+ *   Applied to the payload bytes only (ASM is never randomized).
  */
 
-import type { FrameSection } from '../types';
+import type { FrameConfig, FrameSection, CaduPayloadType, RsVariant, RsInterleaveDepth } from '../types';
+import { rsEncode, RS_VARIANT_INFO } from './reedSolomon';
+import { hexToBytes } from './hex';
 
 export const ASM = new Uint8Array([0x1a, 0xcf, 0xfc, 0x1d]);
 export const ASM_SIZE = 4;
@@ -23,23 +29,106 @@ export const ASM_SIZE = 4;
 export interface CADUResult {
   cadu: Uint8Array;
   sections: FrameSection[];
+  error: string | null;
+}
+
+export interface CADUConfig {
+  caduRandomize: boolean;
+  caduPayloadType: CaduPayloadType;
+  rsVariant: RsVariant;
+  rsInterleaveDepth: RsInterleaveDepth;
+  caduCodewordData: string;
 }
 
 /**
- * Wrap a Transfer Frame in a CADU.
+ * Assemble a CADU from a completed TM Transfer Frame.
  *
- * @param frame          - Completed TM Transfer Frame bytes.
- * @param randomize      - Apply CCSDS PRBS pseudo-randomization to the frame.
- * @param frameSections  - Section annotations from buildTMFrame (offset by ASM_SIZE).
+ * @param frame         - Completed TM Transfer Frame bytes.
+ * @param config        - CADU configuration (payload type, RS params, randomize flag).
+ * @param frameSections - Section annotations from buildTMFrame (offset by ASM_SIZE when
+ *                        payload type is 'transfer-frame').
  */
 export function buildCADU(
   frame: Uint8Array,
-  randomize: boolean,
+  config: CADUConfig,
   frameSections: FrameSection[] = [],
 ): CADUResult {
-  const cadu = new Uint8Array(ASM_SIZE + frame.length);
+  const { caduRandomize, caduPayloadType, rsVariant, rsInterleaveDepth, caduCodewordData } = config;
+
+  let payload: Uint8Array;
+  let payloadSections: FrameSection[];
+  let error: string | null = null;
+
+  // Build the payload bytes and associated sections
+  switch (caduPayloadType) {
+    case 'transfer-frame': {
+      payload = frame;
+      payloadSections = frameSections.map(s => ({
+        ...s,
+        start: s.start + ASM_SIZE,
+        end: s.end + ASM_SIZE,
+      }));
+      break;
+    }
+
+    case 'reed-solomon': {
+      const info = RS_VARIANT_INFO[rsVariant];
+      const rsPayload = rsEncode(frame, rsVariant, rsInterleaveDepth);
+      payload = rsPayload;
+
+      // Sections: one "Data" section per sub-block + one "RS Check" section per sub-block
+      // For depth > 1 the data is interleaved so we just annotate the full RS block.
+      const I = rsInterleaveDepth;
+      const rsDataBytes = info.k * I;    // data portion of RS payload
+      const rsSections: FrameSection[] = [
+        {
+          label: `RS Data (${I === 1 ? info.k : `${info.k}×${I}`}B)`,
+          start: ASM_SIZE,
+          end: ASM_SIZE + rsDataBytes,
+          color: 'bg-green-900/60',
+          textColor: 'text-green-300',
+        },
+        {
+          label: `RS Check (${info.twoT * I}B)`,
+          start: ASM_SIZE + rsDataBytes,
+          end: ASM_SIZE + rsPayload.length,
+          color: 'bg-pink-900/60',
+          textColor: 'text-pink-300',
+        },
+      ];
+      payloadSections = rsSections;
+      break;
+    }
+
+    case 'codeword': {
+      const parsed = caduCodewordData.trim() ? hexToBytes(caduCodewordData) : new Uint8Array(0);
+      if (parsed === null) {
+        error = 'Codeword: invalid hex data';
+        payload = new Uint8Array(0);
+      } else {
+        payload = parsed;
+      }
+      payloadSections = payload.length > 0
+        ? [{
+            label: 'Codeword',
+            start: ASM_SIZE,
+            end: ASM_SIZE + payload.length,
+            color: 'bg-teal-900/60',
+            textColor: 'text-teal-300',
+          }]
+        : [];
+      break;
+    }
+  }
+
+  if (error) {
+    return { cadu: new Uint8Array(0), sections: [], error };
+  }
+
+  const processedPayload = caduRandomize ? applyPRBS(payload) : payload;
+  const cadu = new Uint8Array(ASM_SIZE + processedPayload.length);
   cadu.set(ASM, 0);
-  cadu.set(randomize ? applyPRBS(frame) : frame, ASM_SIZE);
+  cadu.set(processedPayload, ASM_SIZE);
 
   const sections: FrameSection[] = [
     {
@@ -49,14 +138,10 @@ export function buildCADU(
       color: 'bg-orange-900/60',
       textColor: 'text-orange-300',
     },
-    ...frameSections.map(s => ({
-      ...s,
-      start: s.start + ASM_SIZE,
-      end: s.end + ASM_SIZE,
-    })),
+    ...payloadSections,
   ];
 
-  return { cadu, sections };
+  return { cadu, sections, error: null };
 }
 
 /**

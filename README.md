@@ -12,14 +12,15 @@ Built with React + TypeScript + Vite. Reference standards: [CCSDS 132.0-B-3](htt
 | Module | Description |
 |--------|-------------|
 | `src/utils/frameBuilder.ts` | Constructs complete CCSDS TM Transfer Frames per CCSDS 132.0-B-3. Handles the 6-byte primary header, optional secondary header, data field with idle-fill, OCF, and FECF. |
-| `src/utils/cadu.ts` | CADU encapsulation per CCSDS 131.0-B-5. Prepends the 4-byte ASM (`1A CF FC 1D`) and optionally applies PRBS pseudo-randomization (Fibonacci LFSR, h(x)=x⁸+x⁷+x⁵+x³+1, seed 0xFF). |
+| `src/utils/cadu.ts` | CADU encapsulation per CCSDS 131.0-B-5. Prepends the 4-byte ASM (`1A CF FC 1D`). Supports three payload types: Transfer Frame, Reed-Solomon coded, and raw Codeword. Optionally applies PRBS pseudo-randomization. |
+| `src/utils/reedSolomon.ts` | Reed-Solomon encoder per CCSDS 131.0-B-5 §4. GF(2⁸) with primitive polynomial 0x187. Supports RS(255,223) and RS(255,239) with interleave depths 1, 2, 3, 4, 5, 8. Includes syndrome validation. |
 | `src/utils/crc.ts` | CRC-16/CCITT-FALSE implementation (init 0xFFFF, poly 0x1021, no reflection) used for the Frame Error Control Field. |
 | `src/utils/hex.ts` | Hex/ASCII conversion utilities: parsing, formatting, hex-dump, and input validation. |
-| `src/hooks/useTransmitter.ts` | React hook that manages a WebSocket connection and fires frames at a configurable interval. Wraps the frame in a CADU when enabled. Tracks MCFC/VCFC counters with 8-bit wrap-around. |
-| `src/components/FrameConfig.tsx` | Panel for all primary-header parameters: SCID, VCID, frame length, sync flag, FHP, optional fields, and CADU encapsulation. |
+| `src/hooks/useTransmitter.ts` | React hook that manages a WebSocket connection and fires frames at a configurable interval. Wraps the frame in a CADU (with the selected payload type) when enabled. Tracks MCFC/VCFC counters with 8-bit wrap-around. |
+| `src/components/FrameConfig.tsx` | Panel for all primary-header parameters: SCID, VCID, frame length, sync flag, FHP, optional fields, and CADU encapsulation with payload dependency selection. |
 | `src/components/PayloadInput.tsx` | Hex / ASCII payload editor with file-upload, capacity bar, and helper fill buttons (idle, ramp). |
 | `src/components/TransmissionPanel.tsx` | WebSocket URL, interval control, start/stop, and live transmission statistics. |
-| `src/components/FramePreview.tsx` | Live colour-coded hex dump with section legend (ASM, Primary Header, Secondary Header, Data Field, OCF, FECF). |
+| `src/components/FramePreview.tsx` | Live colour-coded hex dump with section legend (ASM, Primary Header, Secondary Header, Data Field, OCF, FECF, RS Data, RS Check, Codeword). |
 
 ### Frame Structure
 
@@ -45,14 +46,15 @@ CADU (CCSDS 131.0-B-5), when enabled:
 
 ### Unit Tests
 
-91 tests across four test suites using **Vitest**:
+134 tests across five test suites using **Vitest**:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | `crc.test.ts` | 8 | CRC-16/CCITT-FALSE algorithm with known CCITT check vector (0x29B1) |
 | `hex.test.ts` | 33 | `hexToBytes`, `bytesToHex`, `byteHex`, `asciiToBytes`, `hexDump`, `validateHexInput` |
 | `frameBuilder.test.ts` | 33 | Frame construction, header encoding, optional fields, error cases, `availableDataBytes` |
-| `cadu.test.ts` | 17 | ASM value, CADU structure, section offsetting, PRBS sequence vectors, self-inverse property |
+| `cadu.test.ts` | 27 | ASM value, CADU structure, section offsetting, PRBS sequence vectors, RS payload, codeword payload |
+| `reedSolomon.test.ts` | 33 | GF(2⁸) table correctness, generator polynomial roots, systematic encoding, syndrome validation, interleaving |
 
 ### Docker Support
 
@@ -154,7 +156,11 @@ Use the **Frame Config** panel on the left to set:
 | **FECF** | Enable to append a CRC-16/CCITT-FALSE checksum |
 | **Idle Fill Byte** | Byte value used to pad unused data field space (default `0xE0`) |
 | **Enable CADU** | Wraps the completed Transfer Frame in a CADU (prepends ASM `1A CF FC 1D`) |
-| **Pseudo-randomization** | Applies CCSDS PRBS to the Transfer Frame before transmission (visible only when CADU is enabled) |
+| **Payload Dependency** | Selects what fills the CADU payload: Transfer Frame, Reed-Solomon, or Codeword (visible only when CADU is enabled) |
+| **RS Variant** | RS(255,223) or RS(255,239) code rate (visible when Payload = Reed-Solomon) |
+| **Interleave Depth** | Number of independently encoded RS sub-blocks: 1, 2, 3, 4, 5, or 8 (visible when Payload = Reed-Solomon) |
+| **Codeword Data** | Raw hex bytes used directly as CADU payload (visible when Payload = Codeword) |
+| **Pseudo-randomization** | Applies CCSDS PRBS to the payload bytes before transmission (visible only when CADU is enabled) |
 
 The **Available Payload** counter at the bottom of the panel shows how many bytes remain for user data given the current configuration.
 
@@ -162,14 +168,49 @@ The **Available Payload** counter at the bottom of the panel shows how many byte
 
 When **Enable CADU** is toggled on in the *CADU Encapsulation* section of the Frame Config panel:
 
-- The 4-byte **Attached Synchronization Marker (ASM)** `1A CF FC 1D` is prepended to every outgoing Transfer Frame.
-- The bytes-sent counter and Frame Preview reflect the full CADU size (frame length + 4 bytes).
-- The **Pseudo-randomization (PRBS)** sub-toggle, when enabled, XORs the Transfer Frame bytes (not the ASM) with the output of a Fibonacci LFSR prior to transmission:
-  - Generator polynomial: h(x) = x⁸ + x⁷ + x⁵ + x³ + 1
-  - Initial fill: `0xFF` (all ones)
-  - Period: 255 bits
-  - This operation is self-inverse — applying PRBS twice recovers the original data.
-- The header bar shows an **CADU** badge (or **CADU+PRBS** when randomization is active).
+- The 4-byte **Attached Synchronization Marker (ASM)** `1A CF FC 1D` is prepended to every outgoing frame.
+- The bytes-sent counter and Frame Preview reflect the full CADU size.
+
+##### Payload Dependency
+
+The **Payload Dependency** dropdown selects what occupies the CADU payload (after the ASM):
+
+**1. Transfer Frame** (default)
+- CADU payload = the completed TM Transfer Frame bytes.
+- CADU size = frame length + 4 bytes.
+
+**2. Reed-Solomon**
+- The Transfer Frame data is RS-encoded using the selected code variant and interleave depth.
+- CADU payload = I×255 bytes of RS-coded data (data + check symbols, byte-interleaved when I > 1).
+- Supported variants (CCSDS 131.0-B-5 §4, GF(2⁸), primitive polynomial 0x187, FCR=112):
+
+  | Variant | Data bytes (k) | Check bytes (2t) | Error correction |
+  |---------|---------------|------------------|------------------|
+  | RS(255,223) | 223 | 32 | E=16 symbol errors |
+  | RS(255,239) | 239 | 16 | E=8 symbol errors |
+
+- **Interleave Depth (I)**: 1, 2, 3, 4, 5, or 8 independent codewords. Total payload = I×255 bytes. The Transfer Frame data is zero-padded or truncated to k×I bytes to match the RS input requirement.
+- The Frame Preview colour-codes the **RS Data** (green) and **RS Check** (pink) sections within the CADU.
+
+**3. Codeword**
+- Enter arbitrary hex bytes in the **Codeword Data** field.
+- CADU payload = the raw codeword bytes exactly as entered.
+- Useful for injecting pre-computed or externally generated channel codewords.
+
+##### Pseudo-randomization (PRBS)
+
+When enabled, the payload bytes (not the ASM) are XOR'd with the output of a Fibonacci LFSR prior to transmission:
+- Generator polynomial: h(x) = x⁸ + x⁷ + x⁵ + x³ + 1
+- Initial fill: `0xFF` (all ones)
+- Period: 255 bits
+- Self-inverse — applying PRBS twice recovers the original data.
+
+The header bar shows a badge indicating the active CADU mode:
+- **CADU** — Transfer Frame only
+- **CADU+RS(255,223)** — Reed-Solomon RS(255,223)
+- **CADU+RS(255,239)×5** — Reed-Solomon RS(255,239) with interleave depth 5
+- **CADU+CW** — Raw Codeword
+- Append **+PRBS** to any of the above when randomization is active.
 
 ### 2. Enter Payload Data
 
@@ -284,7 +325,9 @@ Postman's built-in WebSocket client lets you connect to any WebSocket server and
         ├── frameBuilder.ts
         ├── frameBuilder.test.ts
         ├── hex.ts
-        └── hex.test.ts
+        ├── hex.test.ts
+        ├── reedSolomon.ts
+        └── reedSolomon.test.ts
 ```
 
 ---
