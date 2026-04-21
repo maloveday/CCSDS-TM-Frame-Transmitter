@@ -291,6 +291,44 @@ export function FrameConfig({ config, onChange, disabled }: Props) {
           </div>
         </section>
 
+        {/* CADU Encapsulation */}
+        <section>
+          <p className="text-xs text-slate-600 uppercase tracking-widest mb-3 border-b border-[#1a2438] pb-1">
+            CADU Encapsulation
+            <span className="ml-2 text-slate-700 normal-case tracking-normal">CCSDS 131.0-B-5</span>
+          </p>
+          <div className="space-y-3">
+            <div>
+              <Toggle
+                label="Enable CADU"
+                checked={config.hasCADU}
+                disabled={disabled}
+                onChange={v => onChange({ hasCADU: v })}
+              />
+              {config.hasCADU && (
+                <p className="text-xs text-slate-600 mt-1 ml-11">
+                  Prepends 4-byte ASM <span className="font-mono text-orange-400">1A CF FC 1D</span>
+                </p>
+              )}
+            </div>
+            {config.hasCADU && (
+              <div className="ml-4 space-y-2 border-l-2 border-orange-900/40 pl-3">
+                <Toggle
+                  label="Pseudo-randomization (PRBS)"
+                  checked={config.caduRandomize}
+                  disabled={disabled}
+                  onChange={v => onChange({ caduRandomize: v })}
+                />
+                {config.caduRandomize && (
+                  <p className="text-xs text-slate-600 ml-11">
+                    Fibonacci LFSR h(x)=x⁸+x⁷+x⁵+x³+1, seed 0xFF
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FrameConfig, TransmissionConfig, TransmissionStats, WsStatus } from '../types';
 import { buildTMFrame } from '../utils/frameBuilder';
+import { buildCADU } from '../utils/cadu';
 
 interface UseTransmitterReturn {
   isRunning: boolean;
@@ -106,8 +107,12 @@ export function useTransmitter(): UseTransmitterReturn {
             return;
           }
 
+          const frameToSend = frameConfig.hasCADU
+            ? buildCADU(result.frame, frameConfig.caduRandomize).cadu
+            : result.frame;
+
           try {
-            ws.send(result.frame.buffer);
+            ws.send(frameToSend.buffer);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             setLastError(`Send error: ${msg}`);
@@ -117,7 +122,7 @@ export function useTransmitter(): UseTransmitterReturn {
 
           const newStats: TransmissionStats = {
             framesSent: currentStats.framesSent + 1,
-            bytesSent: currentStats.bytesSent + result.frame.length,
+            bytesSent: currentStats.bytesSent + frameToSend.length,
             mcfc: (currentStats.mcfc + 1) & 0xff,
             vcfc: (currentStats.vcfc + 1) & 0xff,
             lastFrameTs: Date.now(),
@@ -125,7 +130,7 @@ export function useTransmitter(): UseTransmitterReturn {
 
           statsRef.current = newStats;
           setStats({ ...newStats });
-          setLastFrame(result.frame);
+          setLastFrame(frameToSend);
         };
 
         // Send first frame immediately

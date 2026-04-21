@@ -6,6 +6,7 @@ import { TransmissionPanel } from './components/TransmissionPanel';
 import { FramePreview } from './components/FramePreview';
 import { useTransmitter } from './hooks/useTransmitter';
 import { availableDataBytes, buildTMFrame } from './utils/frameBuilder';
+import { buildCADU } from './utils/cadu';
 
 const DEFAULT_FRAME_CONFIG: FrameConfig = {
   scid: 1,
@@ -21,6 +22,8 @@ const DEFAULT_FRAME_CONFIG: FrameConfig = {
   ocfData: '00 00 00 00',
   hasFECF: true,
   idleFillByte: 0xe0,
+  hasCADU: false,
+  caduRandomize: false,
 };
 
 const DEFAULT_TX_CONFIG: TransmissionConfig = {
@@ -63,9 +66,18 @@ export default function App() {
     return buildTMFrame(frameConfig, payload.bytes, stats.mcfc, stats.vcfc);
   }, [frameConfig, payload.bytes, stats.mcfc, stats.vcfc]);
 
+  // Wrap in CADU if enabled (preview only — the transmitter handles its own wrapping)
+  const displayResult = useMemo(() => {
+    if (frameConfig.hasCADU && !previewResult.error) {
+      const { cadu, sections } = buildCADU(previewResult.frame, frameConfig.caduRandomize, previewResult.sections);
+      return { frame: cadu, sections, error: null };
+    }
+    return previewResult;
+  }, [frameConfig.hasCADU, frameConfig.caduRandomize, previewResult]);
+
   // If running and we have a last transmitted frame, show that; otherwise show the built preview
-  const displayFrame = lastFrame ?? previewResult.frame;
-  const displaySections = previewResult.sections;
+  const displayFrame = lastFrame ?? displayResult.frame;
+  const displaySections = displayResult.sections;
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#080c14]">
@@ -84,6 +96,7 @@ export default function App() {
           {frameConfig.hasFECF && <span className="text-red-400">FECF</span>}
           {frameConfig.hasOCF && <span className="text-amber-400">OCF</span>}
           {frameConfig.hasSecondaryHeader && <span className="text-purple-400">SH</span>}
+          {frameConfig.hasCADU && <span className="text-orange-400">CADU{frameConfig.caduRandomize && '+PRBS'}</span>}
         </div>
       </header>
 
@@ -129,7 +142,7 @@ export default function App() {
         <FramePreview
           frame={displayFrame}
           sections={displaySections}
-          buildError={previewResult.error}
+          buildError={displayResult.error}
         />
       </div>
     </div>

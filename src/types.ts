@@ -24,6 +24,10 @@ export interface FrameConfig {
 
   // Idle fill byte (used when payload < data field capacity)
   idleFillByte: number; // default 0xE0
+
+  // CADU encapsulation (CCSDS 131.0-B-5)
+  hasCADU: boolean;        // prepend 4-byte ASM (0x1A CF FC 1D)
+  caduRandomize: boolean;  // apply PRBS pseudo-randomization to the Transfer Frame
 }
 
 export type PayloadMode = 'hex' | 'ascii';
