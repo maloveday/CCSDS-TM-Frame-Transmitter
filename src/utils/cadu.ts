@@ -19,7 +19,7 @@
  *   Applied to the payload bytes only (ASM is never randomized).
  */
 
-import type { FrameConfig, FrameSection, CaduPayloadType, RsVariant, RsInterleaveDepth } from '../types';
+import type { FrameSection, CaduPayloadType, RsVariant, RsInterleaveDepth } from '../types';
 import { rsEncode, RS_VARIANT_INFO } from './reedSolomon';
 import { hexToBytes } from './hex';
 
