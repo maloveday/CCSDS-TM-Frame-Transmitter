@@ -4,7 +4,6 @@ import {
   rsEncode,
   rsIsValidCodeword,
   buildGenPoly,
-  gfEvalPoly,
   gfMul,
   GF_EXP,
   GF_LOG,
