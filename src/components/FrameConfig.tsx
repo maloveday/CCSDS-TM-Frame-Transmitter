@@ -1,5 +1,6 @@
-import type { FrameConfig } from '../types';
+import type { FrameConfig, CaduPayloadType, RsVariant, RsInterleaveDepth } from '../types';
 import { FHP_IDLE, FHP_NO_PACKET, availableDataBytes } from '../utils/frameBuilder';
+import { RS_VARIANT_INFO } from '../utils/reedSolomon';
 
 interface Props {
   config: FrameConfig;
@@ -311,8 +312,86 @@ export function FrameConfig({ config, onChange, disabled }: Props) {
                 </p>
               )}
             </div>
+
             {config.hasCADU && (
-              <div className="ml-4 space-y-2 border-l-2 border-orange-900/40 pl-3">
+              <div className="ml-4 space-y-3 border-l-2 border-orange-900/40 pl-3">
+
+                {/* Payload Dependency */}
+                <div>
+                  <label className="field-label">Payload Dependency</label>
+                  <select
+                    className="field-input"
+                    value={config.caduPayloadType}
+                    disabled={disabled}
+                    onChange={e => onChange({ caduPayloadType: e.target.value as CaduPayloadType })}
+                  >
+                    <option value="transfer-frame">Transfer Frame</option>
+                    <option value="reed-solomon">Reed-Solomon</option>
+                    <option value="codeword">Codeword</option>
+                  </select>
+                </div>
+
+                {/* Reed-Solomon sub-options */}
+                {config.caduPayloadType === 'reed-solomon' && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="field-label">RS Variant</label>
+                      <select
+                        className="field-input"
+                        value={config.rsVariant}
+                        disabled={disabled}
+                        onChange={e => onChange({ rsVariant: e.target.value as RsVariant })}
+                      >
+                        <option value="RS_255_223">RS(255,223) — k=223, 32 check bytes, E=16</option>
+                        <option value="RS_255_239">RS(255,239) — k=239, 16 check bytes, E=8</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label">Interleave Depth</label>
+                      <select
+                        className="field-input"
+                        value={config.rsInterleaveDepth}
+                        disabled={disabled}
+                        onChange={e => onChange({ rsInterleaveDepth: parseInt(e.target.value) as RsInterleaveDepth })}
+                      >
+                        {([1, 2, 3, 4, 5, 8] as RsInterleaveDepth[]).map(d => (
+                          <option key={d} value={d}>
+                            I={d} — {RS_VARIANT_INFO[config.rsVariant].n * d}B payload
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="text-xs text-slate-600">
+                      GF(2⁸) p(x)=x⁸+x⁷+x²+x+1, FCR=112, α=0x02
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Frame data padded/truncated to{' '}
+                      <span className="text-emerald-400 font-mono">
+                        {RS_VARIANT_INFO[config.rsVariant].k * config.rsInterleaveDepth}
+                      </span>
+                      {' '}bytes for RS input
+                    </p>
+                  </div>
+                )}
+
+                {/* Raw codeword input */}
+                {config.caduPayloadType === 'codeword' && (
+                  <div>
+                    <label className="field-label">Codeword Data (hex)</label>
+                    <textarea
+                      className="field-input font-mono text-teal-300 h-20 resize-none"
+                      placeholder="AA BB CC DD ..."
+                      value={config.caduCodewordData}
+                      disabled={disabled}
+                      onChange={e => onChange({ caduCodewordData: e.target.value })}
+                    />
+                    <p className="text-xs text-slate-600 mt-1">
+                      {config.caduCodewordData.replace(/[\s:]/g, '').length / 2 | 0} bytes entered
+                    </p>
+                  </div>
+                )}
+
+                {/* PRBS randomization */}
                 <Toggle
                   label="Pseudo-randomization (PRBS)"
                   checked={config.caduRandomize}
