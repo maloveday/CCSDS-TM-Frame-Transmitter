@@ -9,7 +9,11 @@ interface UseTransmitterReturn {
   stats: TransmissionStats;
   lastFrame: Uint8Array | null;
   lastError: string | null;
-  start: (frameConfig: FrameConfig, txConfig: TransmissionConfig, payload: Uint8Array) => void;
+  start: (
+    frameConfig: FrameConfig,
+    txConfig: TransmissionConfig,
+    getPayload: () => Promise<Uint8Array>,
+  ) => void;
   stop: (finalStatus?: WsStatus) => void;
   resetStats: () => void;
 }
@@ -63,7 +67,11 @@ export function useTransmitter(): UseTransmitterReturn {
   }, [clearTimer, closeSocket]);
 
   const start = useCallback(
-    (frameConfig: FrameConfig, txConfig: TransmissionConfig, payload: Uint8Array) => {
+    (
+      frameConfig: FrameConfig,
+      txConfig: TransmissionConfig,
+      getPayload: () => Promise<Uint8Array>,
+    ) => {
       if (runningRef.current) stop();
 
       setLastError(null);
@@ -90,62 +98,83 @@ export function useTransmitter(): UseTransmitterReturn {
         if (!runningRef.current) return;
         setWsStatus('connected');
 
-        const sendFrame = () => {
-          if (!runningRef.current || ws.readyState !== WebSocket.OPEN) return;
+        // Guard against concurrent async sendFrame invocations if getPayload is slow
+        let sendInProgress = false;
 
-          const currentStats = statsRef.current;
-          const result = buildTMFrame(
-            frameConfig,
-            payload,
-            currentStats.mcfc,
-            currentStats.vcfc,
-          );
-
-          if (result.error) {
-            setLastError(result.error);
-            stop();
-            return;
-          }
-
-          const caduResult = frameConfig.hasCADU
-            ? buildCADU(result.frame, frameConfig)
-            : null;
-
-          if (caduResult?.error) {
-            setLastError(caduResult.error);
-            stop();
-            return;
-          }
-
-          const frameToSend = caduResult ? caduResult.cadu : result.frame;
+        const sendFrame = async () => {
+          if (sendInProgress || !runningRef.current || ws.readyState !== WebSocket.OPEN) return;
+          sendInProgress = true;
 
           try {
-            ws.send(frameToSend.buffer);
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            setLastError(`Send error: ${msg}`);
-            stop();
-            return;
+            let payloadBytes: Uint8Array;
+            try {
+              payloadBytes = await getPayload();
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              setLastError(`Payload read error: ${msg}`);
+              stop();
+              return;
+            }
+
+            // Re-check after the async file read — user may have stopped while we waited
+            if (!runningRef.current || ws.readyState !== WebSocket.OPEN) return;
+
+            const currentStats = statsRef.current;
+            const result = buildTMFrame(
+              frameConfig,
+              payloadBytes,
+              currentStats.mcfc,
+              currentStats.vcfc,
+            );
+
+            if (result.error) {
+              setLastError(result.error);
+              stop();
+              return;
+            }
+
+            const caduResult = frameConfig.hasCADU
+              ? buildCADU(result.frame, frameConfig)
+              : null;
+
+            if (caduResult?.error) {
+              setLastError(caduResult.error);
+              stop();
+              return;
+            }
+
+            const frameToSend = caduResult ? caduResult.cadu : result.frame;
+
+            try {
+              ws.send(frameToSend.buffer);
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              setLastError(`Send error: ${msg}`);
+              stop();
+              return;
+            }
+
+            const newStats: TransmissionStats = {
+              framesSent: currentStats.framesSent + 1,
+              bytesSent: currentStats.bytesSent + frameToSend.length,
+              mcfc: (currentStats.mcfc + 1) & 0xff,
+              vcfc: (currentStats.vcfc + 1) & 0xff,
+              lastFrameTs: Date.now(),
+            };
+
+            statsRef.current = newStats;
+            setStats({ ...newStats });
+            setLastFrame(frameToSend);
+          } finally {
+            sendInProgress = false;
           }
-
-          const newStats: TransmissionStats = {
-            framesSent: currentStats.framesSent + 1,
-            bytesSent: currentStats.bytesSent + frameToSend.length,
-            mcfc: (currentStats.mcfc + 1) & 0xff,
-            vcfc: (currentStats.vcfc + 1) & 0xff,
-            lastFrameTs: Date.now(),
-          };
-
-          statsRef.current = newStats;
-          setStats({ ...newStats });
-          setLastFrame(frameToSend);
         };
 
         // Send first frame immediately
-        sendFrame();
+        void sendFrame();
 
         // Then schedule at interval
-        intervalRef.current = setInterval(sendFrame, txConfig.intervalMs);
+        intervalRef.current = setInterval(() => void sendFrame(), txConfig.intervalMs);
       };
 
       ws.onerror = () => {

@@ -53,6 +53,17 @@ export interface PayloadState {
   fileName: string | null;
 }
 
+/** Rotating folder payload source — files are read fresh on every use. */
+export interface FolderPayloadState {
+  enabled: boolean;
+  dirName: string | null;
+  /** Sorted alphanumerically; each file contains hex-encoded payload bytes. */
+  files: File[];
+  /** Index of the file that was last sent (for UI display). */
+  currentIndex: number;
+  error: string | null;
+}
+
 export type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export interface TransmissionConfig {
