@@ -84,8 +84,10 @@ export default function App() {
     return previewResult;
   }, [frameConfig, previewResult]);
 
-  // If running and we have a last transmitted frame, show that; otherwise show the built preview
-  const displayFrame = lastFrame ?? displayResult.frame;
+  // While running, show the last transmitted frame; otherwise show the live preview.
+  // Using `isRunning` rather than `lastFrame != null` ensures the preview resumes
+  // reacting to config/payload changes as soon as the user stops transmission.
+  const displayFrame = isRunning && lastFrame != null ? lastFrame : displayResult.frame;
   const displaySections = displayResult.sections;
 
   return (
