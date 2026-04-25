@@ -225,6 +225,45 @@ Use the **Payload** panel in the centre:
 
 The capacity bar turns amber when over 75% full and red when the payload exceeds the available space (excess bytes are silently truncated to fit).
 
+#### Folder Rotation — sending different payloads in sequence
+
+The **Folder Rotation** section (at the bottom of the Payload panel) lets you point the transmitter at a folder of hex payload files. During live transmission each frame is loaded from the next file in the sequence; after the last file the rotation wraps back to the first and continues until you click Stop.
+
+**File format**
+
+Each file must contain the payload bytes as a hex string — the same format accepted by the manual Hex input (space-separated, colon-separated, or run-together pairs are all valid):
+
+```
+DE AD BE EF 00 01 02 03
+```
+
+Binary files are not supported in this mode; save the payload as a `.hex` or `.txt` file containing the hex representation.
+
+**Setting up a sequence**
+
+1. Create a folder and place two or more hex payload files inside it. Only files in the top level of the folder are used; sub-folders are ignored.
+2. Name the files so that their **alphanumeric order matches the desired transmission order** — the transmitter sorts them with numeric awareness, so `payload_2.hex` comes before `payload_10.hex`.
+
+   Example sequence:
+   ```
+   payloads/
+     01_telemetry_housekeeping.hex
+     02_telemetry_science.hex
+     03_telemetry_engineering.hex
+   ```
+
+3. Click **Select Folder** in the Folder Rotation section and choose the folder. The panel lists all detected files in sorted order and the toggle switches to **On** automatically.
+4. Click **▶ Start** in the Transmission panel. The **▶** marker in the file list tracks which file is currently being sent.
+
+**Behaviour details**
+
+- The rotation resets to the first file every time **▶ Start** is clicked.
+- Each file is read fresh from disk on every use — content changes made to a file between cycles are picked up automatically without restarting.
+- If a file cannot be read (e.g. it has been deleted or is locked), transmission stops and an error is shown.
+- If the file contains invalid hex the payload for that frame is treated as empty (zero bytes), and idle fill is applied to the unused data field space.
+- Toggle the switch to **Off** to revert to the manual Hex/ASCII payload without stopping the current transmission session setup.
+- The header bar shows a **FOLDER (N files)** badge while folder mode is active.
+
 ### 3. Connect and Transmit
 
 Use the **Transmission** panel on the right:

@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import type { FrameConfig, PayloadState, TransmissionConfig } from './types';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { FrameConfig, FolderPayloadState, PayloadState, TransmissionConfig } from './types';
 import { FrameConfig as FrameConfigPanel } from './components/FrameConfig';
 import { PayloadInput } from './components/PayloadInput';
 import { TransmissionPanel } from './components/TransmissionPanel';
@@ -7,6 +7,7 @@ import { FramePreview } from './components/FramePreview';
 import { useTransmitter } from './hooks/useTransmitter';
 import { availableDataBytes, buildTMFrame } from './utils/frameBuilder';
 import { buildCADU } from './utils/cadu';
+import { hexToBytes } from './utils/hex';
 
 const DEFAULT_FRAME_CONFIG: FrameConfig = {
   scid: 1,
@@ -43,10 +44,22 @@ const DEFAULT_PAYLOAD: PayloadState = {
   fileName: null,
 };
 
+const DEFAULT_FOLDER: FolderPayloadState = {
+  enabled: false,
+  dirName: null,
+  files: [],
+  currentIndex: 0,
+  error: null,
+};
+
 export default function App() {
   const [frameConfig, setFrameConfig] = useState<FrameConfig>(DEFAULT_FRAME_CONFIG);
   const [txConfig, setTxConfig] = useState<TransmissionConfig>(DEFAULT_TX_CONFIG);
   const [payload, setPayload] = useState<PayloadState>(DEFAULT_PAYLOAD);
+  const [folderPayload, setFolderPayload] = useState<FolderPayloadState>(DEFAULT_FOLDER);
+
+  // Ref tracks which file to read next during transmission (avoids stale closure issues)
+  const folderIndexRef = useRef(0);
 
   const { isRunning, wsStatus, stats, lastFrame, lastError, start, stop, resetStats } =
     useTransmitter();
@@ -59,9 +72,31 @@ export default function App() {
     setTxConfig(prev => ({ ...prev, ...patch }));
   }, []);
 
+  // Returns the next payload bytes for a frame.
+  // In folder mode: reads the next file fresh from disk and advances the rotation.
+  // Otherwise: returns the static manual payload.
+  const getPayload = useCallback(async (): Promise<Uint8Array> => {
+    if (folderPayload.enabled && folderPayload.files.length >= 2) {
+      const idx = folderIndexRef.current;
+      const nextIdx = (idx + 1) % folderPayload.files.length;
+      folderIndexRef.current = nextIdx;
+
+      // Update display index (non-critical — best-effort UI update)
+      setFolderPayload(prev => ({ ...prev, currentIndex: idx }));
+
+      const file = folderPayload.files[idx];
+      const text = await file.text();
+      return hexToBytes(text.trim()) ?? new Uint8Array(0);
+    }
+    return payload.bytes;
+  }, [folderPayload.enabled, folderPayload.files, payload.bytes]);
+
   const handleStart = useCallback(() => {
-    start(frameConfig, txConfig, payload.bytes);
-  }, [start, frameConfig, txConfig, payload.bytes]);
+    // Reset folder rotation to the first file on every new transmission
+    folderIndexRef.current = 0;
+    setFolderPayload(prev => ({ ...prev, currentIndex: 0 }));
+    start(frameConfig, txConfig, getPayload);
+  }, [start, frameConfig, txConfig, getPayload]);
 
   const availableBytes = useMemo(() => availableDataBytes(frameConfig), [frameConfig]);
 
@@ -84,8 +119,10 @@ export default function App() {
     return previewResult;
   }, [frameConfig, previewResult]);
 
-  // If running and we have a last transmitted frame, show that; otherwise show the built preview
-  const displayFrame = lastFrame ?? displayResult.frame;
+  // While running, show the last transmitted frame; otherwise show the live preview.
+  // Using `isRunning` rather than `lastFrame != null` ensures the preview resumes
+  // reacting to config/payload changes as soon as the user stops transmission.
+  const displayFrame = isRunning && lastFrame != null ? lastFrame : displayResult.frame;
   const displaySections = displayResult.sections;
 
   return (
@@ -105,6 +142,11 @@ export default function App() {
           {frameConfig.hasFECF && <span className="text-red-400">FECF</span>}
           {frameConfig.hasOCF && <span className="text-amber-400">OCF</span>}
           {frameConfig.hasSecondaryHeader && <span className="text-purple-400">SH</span>}
+          {folderPayload.enabled && folderPayload.files.length >= 2 && (
+            <span className="text-violet-400">
+              FOLDER ({folderPayload.files.length} files)
+            </span>
+          )}
           {frameConfig.hasCADU && (
             <span className="text-orange-400">
               {'CADU'}
@@ -137,6 +179,8 @@ export default function App() {
             availableBytes={availableBytes}
             disabled={isRunning}
             onChange={setPayload}
+            folderState={folderPayload}
+            onFolderChange={setFolderPayload}
           />
         </div>
 
