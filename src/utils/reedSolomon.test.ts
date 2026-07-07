@@ -204,6 +204,106 @@ describe('rsIsValidCodeword', () => {
 // rsEncode (interleaved)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Independent cross-validation
+//
+// Everything above validates the encoder against the same GF tables that
+// built it. The reference implementations below share nothing with
+// reedSolomon.ts: multiplication is a table-free carry-less multiply reduced
+// mod 0x187, and encoding is naive polynomial long division. A systematic
+// error in the GF tables or the LFSR encoder cannot pass these tests.
+// ---------------------------------------------------------------------------
+
+/** GF(2^8) multiply via shift-and-add (Russian peasant), no tables. */
+function refMul(a: number, b: number): number {
+  let p = 0;
+  while (b > 0) {
+    if (b & 1) p ^= a;
+    a <<= 1;
+    if (a & 0x100) a ^= 0x187;
+    b >>= 1;
+  }
+  return p;
+}
+
+/** α^n computed by repeated refMul, no tables. */
+function refPow(n: number): number {
+  let x = 1;
+  for (let i = 0; i < n; i++) x = refMul(x, 2);
+  return x;
+}
+
+/** Generator polynomial via naive root multiplication (ascending coeffs). */
+function refGenPoly(twoT: number, fcr: number): number[] {
+  let g = [1];
+  for (let j = 0; j < twoT; j++) {
+    const root = refPow(fcr + j);
+    const next = new Array(g.length + 1).fill(0);
+    for (let i = 0; i < g.length; i++) {
+      next[i] ^= refMul(g[i], root);
+      next[i + 1] ^= g[i];
+    }
+    g = next;
+  }
+  return g;
+}
+
+/** RS check symbols via naive long division of m(x)·x^2t by g(x). */
+function refCheckSymbols(data: Uint8Array, twoT: number, fcr: number): number[] {
+  const gen = refGenPoly(twoT, fcr); // ascending; gen[twoT] = 1 (monic)
+  // Dividend: data (high-degree first) followed by 2t zero coefficients
+  const rem = [...data, ...new Array(twoT).fill(0)];
+  for (let i = 0; i < data.length; i++) {
+    const coef = rem[i];
+    if (coef === 0) continue;
+    // Subtract coef * gen * x^(deg) — gen is monic so no inversion needed
+    for (let j = 0; j <= twoT; j++) {
+      rem[i + j] ^= refMul(gen[twoT - j], coef);
+    }
+  }
+  return rem.slice(data.length); // high-degree first, matching codeword layout
+}
+
+describe('independent cross-validation (table-free reference)', () => {
+  it('gfMul agrees with carry-less multiply for all 65 536 operand pairs', () => {
+    for (let a = 0; a < 256; a++) {
+      for (let b = 0; b < 256; b++) {
+        if (gfMul(a, b) !== refMul(a, b)) {
+          throw new Error(`gfMul(${a}, ${b}) = ${gfMul(a, b)}, expected ${refMul(a, b)}`);
+        }
+      }
+    }
+  });
+
+  it('GF_EXP agrees with repeated multiplication for all 255 powers', () => {
+    for (let i = 0; i < 255; i++) {
+      expect(GF_EXP[i]).toBe(refPow(i));
+    }
+  });
+
+  it('RS(255,223) check symbols match naive polynomial division', () => {
+    const data = new Uint8Array(223).map((_, i) => (i * 89 + 17) & 0xff);
+    const codeword = rsEncodeBlock(data, 'RS_255_223');
+    const expected = refCheckSymbols(data, 32, 112);
+    expect(Array.from(codeword.slice(223))).toEqual(expected);
+  });
+
+  it('RS(255,239) check symbols match naive polynomial division', () => {
+    const data = new Uint8Array(239).map((_, i) => (i * 53 + 201) & 0xff);
+    const codeword = rsEncodeBlock(data, 'RS_255_239');
+    const expected = refCheckSymbols(data, 16, 112);
+    expect(Array.from(codeword.slice(239))).toEqual(expected);
+  });
+
+  it('single-byte data block encodes identically in both implementations', () => {
+    const data = new Uint8Array(223);
+    data[0] = 0x01;
+    const codeword = rsEncodeBlock(data, 'RS_255_223');
+    const expected = refCheckSymbols(data, 32, 112);
+    expect(Array.from(codeword.slice(223))).toEqual(expected);
+  });
+});
+
 describe('rsEncode', () => {
   it('depth=1: output length is 255', () => {
     expect(rsEncode(new Uint8Array(223), 'RS_255_223', 1).length).toBe(255);

@@ -262,6 +262,51 @@ describe('buildTMFrame – Secondary Header', () => {
   });
 });
 
+describe('buildTMFrame – sync & segmentation flags', () => {
+  it('sets the Synchronization Flag bit (word45 bit 14)', () => {
+    const cfg = makeConfig({ frameLength: 7, syncFlag: true });
+    const { frame } = buildTMFrame(cfg, new Uint8Array(0), 0, 0);
+    expect(frame[4] & 0x40).toBe(0x40);
+  });
+
+  it('clears the Synchronization Flag bit when syncFlag is false', () => {
+    const cfg = makeConfig({ frameLength: 7, syncFlag: false });
+    const { frame } = buildTMFrame(cfg, new Uint8Array(0), 0, 0);
+    expect(frame[4] & 0x40).toBe(0);
+  });
+
+  it('sets the Packet Order Flag bit (word45 bit 13)', () => {
+    const cfg = makeConfig({ frameLength: 7, packetOrderFlag: true });
+    const { frame } = buildTMFrame(cfg, new Uint8Array(0), 0, 0);
+    expect(frame[4] & 0x20).toBe(0x20);
+  });
+
+  it('encodes the Segment Length ID (word45 bits 12–11)', () => {
+    const cfg = makeConfig({ frameLength: 7, segmentLengthId: 2, firstHeaderPointer: 0 });
+    const { frame } = buildTMFrame(cfg, new Uint8Array(0), 0, 0);
+    expect((frame[4] >> 3) & 0x03).toBe(2);
+  });
+});
+
+describe('buildTMFrame – Secondary Header with empty data', () => {
+  it('emits only the SH ID byte with a zero length field', () => {
+    // frameLength=8: 6 PH + 1 SH ID byte + 1 data byte
+    const cfg = makeConfig({ frameLength: 8, hasSecondaryHeader: true, secondaryHeaderData: '' });
+    const { frame, error } = buildTMFrame(cfg, new Uint8Array(0), 0, 0);
+    expect(error).toBeNull();
+    // SH ID byte: version 00 + data length 0
+    expect(frame[6]).toBe(0x00);
+  });
+
+  it('SH section spans exactly 1 byte when data is empty', () => {
+    const cfg = makeConfig({ frameLength: 8, hasSecondaryHeader: true, secondaryHeaderData: '' });
+    const { sections } = buildTMFrame(cfg, new Uint8Array(0), 0, 0);
+    const sh = sections.find(s => s.label === 'Secondary Header');
+    expect(sh).toBeDefined();
+    expect(sh!.end - sh!.start).toBe(1);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // buildTMFrame – sections
 // ---------------------------------------------------------------------------

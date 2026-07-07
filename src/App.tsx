@@ -7,7 +7,8 @@ import { FramePreview } from './components/FramePreview';
 import { useTransmitter } from './hooks/useTransmitter';
 import { availableDataBytes, buildTMFrame } from './utils/frameBuilder';
 import { buildCADU } from './utils/cadu';
-import { hexToBytes } from './utils/hex';
+import { createFolderPayloadReader } from './utils/folderPayload';
+import type { FolderPayloadReader } from './utils/folderPayload';
 
 const DEFAULT_FRAME_CONFIG: FrameConfig = {
   scid: 1,
@@ -58,8 +59,9 @@ export default function App() {
   const [payload, setPayload] = useState<PayloadState>(DEFAULT_PAYLOAD);
   const [folderPayload, setFolderPayload] = useState<FolderPayloadState>(DEFAULT_FOLDER);
 
-  // Ref tracks which file to read next during transmission (avoids stale closure issues)
-  const folderIndexRef = useRef(0);
+  // Active rotation reader during transmission; null = manual payload mode.
+  // A ref (not state) so the getPayload closure always sees the live reader.
+  const folderReaderRef = useRef<FolderPayloadReader | null>(null);
 
   const { isRunning, wsStatus, stats, lastFrame, lastError, start, stop, resetStats } =
     useTransmitter();
@@ -76,27 +78,25 @@ export default function App() {
   // In folder mode: reads the next file fresh from disk and advances the rotation.
   // Otherwise: returns the static manual payload.
   const getPayload = useCallback(async (): Promise<Uint8Array> => {
-    if (folderPayload.enabled && folderPayload.files.length >= 2) {
-      const idx = folderIndexRef.current;
-      const nextIdx = (idx + 1) % folderPayload.files.length;
-      folderIndexRef.current = nextIdx;
-
+    const reader = folderReaderRef.current;
+    if (reader) {
+      const { bytes, index } = await reader.next();
       // Update display index (non-critical — best-effort UI update)
-      setFolderPayload(prev => ({ ...prev, currentIndex: idx }));
-
-      const file = folderPayload.files[idx];
-      const text = await file.text();
-      return hexToBytes(text.trim()) ?? new Uint8Array(0);
+      setFolderPayload(prev => ({ ...prev, currentIndex: index }));
+      return bytes;
     }
     return payload.bytes;
-  }, [folderPayload.enabled, folderPayload.files, payload.bytes]);
+  }, [payload.bytes]);
 
   const handleStart = useCallback(() => {
-    // Reset folder rotation to the first file on every new transmission
-    folderIndexRef.current = 0;
+    // A fresh reader per transmission run — rotation always starts at file 1
+    folderReaderRef.current =
+      folderPayload.enabled && folderPayload.files.length >= 2
+        ? createFolderPayloadReader(folderPayload.files)
+        : null;
     setFolderPayload(prev => ({ ...prev, currentIndex: 0 }));
     start(frameConfig, txConfig, getPayload);
-  }, [start, frameConfig, txConfig, getPayload]);
+  }, [start, frameConfig, txConfig, getPayload, folderPayload.enabled, folderPayload.files]);
 
   const availableBytes = useMemo(() => availableDataBytes(frameConfig), [frameConfig]);
 

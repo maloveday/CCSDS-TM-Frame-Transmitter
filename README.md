@@ -46,15 +46,18 @@ CADU (CCSDS 131.0-B-5), when enabled:
 
 ### Unit Tests
 
-134 tests across five test suites using **Vitest**:
+184 tests across eight test suites using **Vitest**:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | `crc.test.ts` | 8 | CRC-16/CCITT-FALSE algorithm with known CCITT check vector (0x29B1) |
 | `hex.test.ts` | 33 | `hexToBytes`, `bytesToHex`, `byteHex`, `asciiToBytes`, `hexDump`, `validateHexInput` |
-| `frameBuilder.test.ts` | 33 | Frame construction, header encoding, optional fields, error cases, `availableDataBytes` |
-| `cadu.test.ts` | 27 | ASM value, CADU structure, section offsetting, PRBS sequence vectors, RS payload, codeword payload |
-| `reedSolomon.test.ts` | 33 | GF(2⁸) table correctness, generator polynomial roots, systematic encoding, syndrome validation, interleaving |
+| `frameBuilder.test.ts` | 39 | Frame construction, header encoding (incl. sync / packet-order flag bits), optional fields, error cases, `availableDataBytes` |
+| `cadu.test.ts` | 27 | ASM value, CADU structure, section offsetting, CCSDS PRBS known-answer vector (`FF 48 0E C0 9A`) and 255-byte period, RS payload, codeword payload |
+| `reedSolomon.test.ts` | 40 | GF(2⁸) tables, generator polynomial roots, systematic encoding, syndrome validation, interleaving, plus table-free cross-validation of every GF product and the check symbols |
+| `folderPayload.test.ts` | 17 | Alphanumeric file ordering, top-level filtering, rotation/wraparound/reset, fresh (uncached) reads, invalid-hex fallback |
+| `useTransmitter.test.ts` | 16 | WebSocket lifecycle (mock socket + fake timers), error states, interval sending, stats, concurrent-send guard, stop-during-read |
+| `integration.test.ts` | 4 | End-to-end golden vector: exact bytes of a fully-loaded frame and its PRBS-randomized CADU |
 
 ### Docker Support
 

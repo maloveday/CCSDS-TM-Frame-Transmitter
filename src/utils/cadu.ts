@@ -148,7 +148,11 @@ export function buildCADU(
  * CCSDS PRBS pseudo-randomizer (CCSDS 131.0-B-5 §9.1 / Annex A).
  *
  * Fibonacci LFSR: h(x) = x^8 + x^7 + x^5 + x^3 + 1, seed = 0xFF.
- * Shift-left register, MSB output, feedback taps at bit positions 7, 5, 3, 0.
+ * Bit-sequence recurrence: s[n+8] = s[n+7] ^ s[n+5] ^ s[n+3] ^ s[n].
+ * In the shift-left / MSB-output register form used here, bit k holds
+ * s[n+7-k], so the feedback (next s[n+8], entering at bit 0) is
+ * bit7 ^ bit4 ^ bit2 ^ bit0.
+ * First 40 output bits per the standard: FF 48 0E C0 9A.
  * XOR output sequence with data bytes (self-inverse operation).
  */
 export function applyPRBS(data: Uint8Array): Uint8Array {
@@ -160,7 +164,7 @@ export function applyPRBS(data: Uint8Array): Uint8Array {
     for (let bit = 7; bit >= 0; bit--) {
       const out = (reg >> 7) & 1;
       mask |= out << bit;
-      const fb = ((reg >> 7) ^ (reg >> 5) ^ (reg >> 3) ^ reg) & 1;
+      const fb = ((reg >> 7) ^ (reg >> 4) ^ (reg >> 2) ^ reg) & 1;
       reg = ((reg << 1) | fb) & 0xff;
     }
     result[i] = data[i] ^ mask;

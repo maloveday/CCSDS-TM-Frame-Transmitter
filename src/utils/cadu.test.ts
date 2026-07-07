@@ -229,13 +229,32 @@ describe('applyPRBS', () => {
     expect(applyPRBS(new Uint8Array([0x00]))[0]).toBe(0xff);
   });
 
-  it('first 4 mask bytes match expected LFSR sequence', () => {
-    // Applying to all-zeros reveals the mask: 0xFF, 0x5A, 0xEA, 0xB2
-    const result = applyPRBS(new Uint8Array([0x00, 0x00, 0x00, 0x00]));
-    expect(result[0]).toBe(0xff);
-    expect(result[1]).toBe(0x5a);
-    expect(result[2]).toBe(0xea);
-    expect(result[3]).toBe(0xb2);
+  it('first 40 mask bits match the sequence published in CCSDS 131.0-B-5', () => {
+    // Independent known-answer vector: the standard states the first 40 bits
+    // of the randomizer sequence are 1111 1111 0100 1000 0000 1110 1100 0000
+    // 1001 1010 = FF 48 0E C0 9A. Applying to all-zeros reveals the mask.
+    const result = applyPRBS(new Uint8Array(5));
+    expect(Array.from(result)).toEqual([0xff, 0x48, 0x0e, 0xc0, 0x9a]);
+  });
+
+  it('mask sequence repeats with a 255-byte period', () => {
+    // The LFSR has a 255-bit period; over bytes the pattern therefore
+    // repeats every 255 bytes (LCM(255, 8) / 8 = 255).
+    const mask = applyPRBS(new Uint8Array(512));
+    for (let i = 0; i + 255 < mask.length; i++) {
+      expect(mask[i]).toBe(mask[i + 255]);
+    }
+  });
+
+  it('mask does not repeat with any shorter byte period', () => {
+    const mask = applyPRBS(new Uint8Array(510));
+    for (const period of [15, 51, 85, 128]) {
+      let repeats = true;
+      for (let i = 0; i + period < 255; i++) {
+        if (mask[i] !== mask[i + period]) { repeats = false; break; }
+      }
+      expect(repeats).toBe(false);
+    }
   });
 
   it('is self-inverse: applying twice returns the original data', () => {

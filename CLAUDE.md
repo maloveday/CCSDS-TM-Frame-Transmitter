@@ -60,15 +60,20 @@ All transmission state lives in `useTransmitter` (`src/hooks/useTransmitter.ts`)
 
 ### Tests
 
-Tests cover only the pure utility layer (`src/utils/*.test.ts`) — no React component or hook tests. Vitest discovers files matching `src/**/*.test.ts`. Tests run in a `node` environment.
+Vitest discovers files matching `src/**/*.test.ts`. The default environment is `node`; `useTransmitter.test.ts` opts into jsdom with a `// @vitest-environment jsdom` pragma and drives the hook via `@testing-library/react` `renderHook` with a mock `WebSocket` class and fake timers.
 
 | Suite | What it tests |
 |---|---|
 | `crc.test.ts` | CRC-16/CCITT-FALSE, known check vector 0x29B1 |
 | `hex.test.ts` | `hexToBytes`, `bytesToHex`, `asciiToBytes`, `hexDump`, `validateHexInput` |
 | `frameBuilder.test.ts` | Full frame assembly, header bit layout, optional fields, `availableDataBytes` |
-| `cadu.test.ts` | ASM value, transfer-frame / RS / codeword payload types, PRBS vectors |
-| `reedSolomon.test.ts` | GF(2⁸) tables, generator polynomial roots, systematic encoding, syndrome validation, interleaving |
+| `cadu.test.ts` | ASM value, transfer-frame / RS / codeword payload types, PRBS known-answer vector + period |
+| `reedSolomon.test.ts` | GF(2⁸) tables, generator polynomial roots, systematic encoding, syndrome validation, interleaving, table-free cross-validation |
+| `folderPayload.test.ts` | File ordering, top-level filtering, rotation semantics, fresh reads |
+| `useTransmitter.test.ts` | Connection lifecycle, error propagation, interval sending, async payload guards |
+| `integration.test.ts` | Byte-exact golden vector through frame → CADU → PRBS |
+
+When changing an encoder, prefer validating against an *independent* reference (published CCSDS vectors, or a structurally different reimplementation in the test) rather than vectors generated from the implementation under test — implementation-derived vectors once masked a real PRBS tap bug (`FF 5A EA B2` instead of the standard's `FF 48 0E C0 9A`).
 
 ### CCSDS references
 

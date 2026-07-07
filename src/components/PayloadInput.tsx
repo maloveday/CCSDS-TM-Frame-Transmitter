@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { FolderPayloadState, PayloadState, PayloadMode } from '../types';
 import { hexToBytes, asciiToBytes, validateHexInput } from '../utils/hex';
+import { filterTopLevelFiles, sortPayloadFiles } from '../utils/folderPayload';
 
 interface Props {
   state: PayloadState;
@@ -71,16 +72,10 @@ export function PayloadInput({
     if (!fileList || fileList.length === 0) return;
 
     const allFiles = Array.from(fileList);
-
-    // Keep only direct children of the selected folder (depth = 1)
-    const topLevel = allFiles.filter(f => f.webkitRelativePath.split('/').length === 2);
-
     const dirName = allFiles[0]?.webkitRelativePath.split('/')[0] ?? null;
 
-    // Sort alphanumerically by file name
-    topLevel.sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-    );
+    // Direct children only, in alphanumeric transmission order
+    const topLevel = sortPayloadFiles(filterTopLevelFiles(allFiles));
 
     if (topLevel.length < 2) {
       onFolderChange({
